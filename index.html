@@ -63,7 +63,7 @@ const DEFAULT_SESSIONS = [
 ];
 
 const STORAGE_KEY = "ipm7_schedule_v7_fresh";
-const BUILD_TAG = "build 2026-07-03-g12 (key fix)";
+const BUILD_TAG = "build 2026-07-03-g13 (compat)";
 
 /* ============================================================
    SHARED STORAGE CONFIG
@@ -1404,7 +1404,7 @@ const CSS = `
         hooks.forEach(function (n) { window[n] = React[n]; });
         var code = document.getElementById("appsrc").textContent;
         // classic runtime -> emits React.createElement, no import statements
-        var out = Babel.transform(code, { presets: [["react", { runtime: "classic" }]] }).code;
+        var out = Babel.transform(code, { presets: [["react", { runtime: "classic" }], ["env", { targets: { chrome: "60", ios: "11", safari: "11" }, modules: false }]] }).code;
         var s = document.createElement("script");
         s.text = out + "
 try{ReactDOM.createRoot(document.getElementById('root')).render(React.createElement(App));}catch(e){document.getElementById('root').innerHTML='<div class="boot">Render error: '+e.message+'</div>';}";
