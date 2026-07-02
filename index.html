@@ -63,7 +63,7 @@ const DEFAULT_SESSIONS = [
 ];
 
 const STORAGE_KEY = "ipm7_schedule_v7_fresh";
-const BUILD_TAG = "build 2026-07-03-g11 (diagnostics)";
+const BUILD_TAG = "build 2026-07-03-g12 (key fix)";
 
 /* ============================================================
    SHARED STORAGE CONFIG
@@ -102,11 +102,15 @@ function fmtShort(dt) {
 }
 
 /* ---------- storage (adaptive: Supabase when configured, else Claude window.storage) ---------- */
-const supaHeaders = () => ({
-  "Content-Type": "application/json",
-  apikey: SUPABASE_ANON_KEY,
-  Authorization: `Bearer ${SUPABASE_ANON_KEY}`,
-});
+// New-style Supabase keys (sb_publishable_… / sb_secret_…) must be sent ONLY in the apikey
+// header. Sending them as Authorization: Bearer makes the platform reject them as an invalid
+// JWT. Legacy keys (eyJ…) are JWTs and still want the Bearer header.
+const IS_JWT_KEY = SUPABASE_ANON_KEY.startsWith("eyJ");
+const supaHeaders = () => {
+  const h = { "Content-Type": "application/json", apikey: SUPABASE_ANON_KEY };
+  if (IS_JWT_KEY) h.Authorization = `Bearer ${SUPABASE_ANON_KEY}`;
+  return h;
+};
 const store = {
   backend: SUPABASE_ENABLED ? "supabase" : (typeof window !== "undefined" && window.storage ? "claude" : "none"),
   diag: { last: "no request yet" },
