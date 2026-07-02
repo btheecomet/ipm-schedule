@@ -63,7 +63,7 @@ const DEFAULT_SESSIONS = [
 ];
 
 const STORAGE_KEY = "ipm7_schedule_v7_fresh";
-const BUILD_TAG = "build 2026-06-30-g9 (standalone + quizzes)";
+const BUILD_TAG = "build 2026-07-03-g10 (resilient load)";
 
 /* ============================================================
    SHARED STORAGE CONFIG
@@ -73,8 +73,8 @@ const BUILD_TAG = "build 2026-06-30-g9 (standalone + quizzes)";
    its values below. Until then, it falls back to Claude's built-in
    shared storage (works only inside Claude). See SETUP GUIDE.
    ============================================================ */
-const SUPABASE_URL = https://lrwhxgrymugbvxnnrjtf.supabase.co/rest/v1/;      // e.g. https://abcdxyz.supabase.co
-const SUPABASE_ANON_KEY = sb_publishable_25CD06sN4EICZIdOYDthTg_Yq0JFuWu;
+const SUPABASE_URL = "https://lrwhxgrymugbvxnnrjtf.supabase.co";      // e.g. https://abcdxyz.supabase.co
+const SUPABASE_ANON_KEY = "sb_publishable_25CD06sN4EICZIdOYDthTg_Yq0JFuWu";
 const SUPABASE_TABLE = "app_state";                        // table name created in the setup guide
 const SUPABASE_ENABLED = SUPABASE_URL.startsWith("http") && SUPABASE_ANON_KEY.length > 20;
 
@@ -560,22 +560,34 @@ function App() {
 
   // load
   useEffect(() => {
+    const DEFAULTS = {
+      courses: DEFAULT_COURSES,
+      slots: DEFAULT_SLOTS,
+      sessions: DEFAULT_SESSIONS,
+      exceptions: {},
+      assessments: [],
+      termStartISO: "2026-06-22",
+      termWeeks: 10,
+    };
     (async () => {
-      const saved = store.backend !== "none" ? await store.get(STORAGE_KEY) : null;
+      let saved = null;
+      if (store.backend !== "none") {
+        try {
+          // don't let a slow/unreachable database hang the UI forever
+          saved = await Promise.race([
+            store.get(STORAGE_KEY),
+            new Promise((resolve) => setTimeout(() => resolve(undefined), 6000)),
+          ]);
+        } catch (e) { saved = null; }
+      }
       if (saved && saved.courses) {
         const fixed = repairData(saved);
         setData(fixed);
-        if (store.backend !== "none") store.set(STORAGE_KEY, fixed);
+        try { if (store.backend !== "none") store.set(STORAGE_KEY, fixed); } catch (e) {}
       } else {
-        setData({
-          courses: DEFAULT_COURSES,
-          slots: DEFAULT_SLOTS,
-          sessions: DEFAULT_SESSIONS,
-          exceptions: {},
-          assessments: [],
-          termStartISO: "2026-06-22",
-          termWeeks: 10,
-        });
+        // Nothing saved yet (or load failed/timed out) → seed defaults and try to save them.
+        setData(DEFAULTS);
+        try { if (store.backend !== "none" && saved !== undefined) store.set(STORAGE_KEY, DEFAULTS); } catch (e) {}
       }
       loadedRef.current = true;
     })();
@@ -637,7 +649,15 @@ function App() {
     setData((d) => ({ ...d, courses: d.courses.map((c) => c.id === courseId ? { ...c, ...patch } : c) }));
   }, []);
 
-  if (!data) return <div style={{ padding: 40, fontFamily: "system-ui" }}>Loading schedule…</div>;
+  if (!data) return (
+    <div style={{ padding: 40, fontFamily: "system-ui", color: "#2f5a1c" }}>
+      <div style={{ fontSize: 18, marginBottom: 8 }}>Loading schedule…</div>
+      <div style={{ fontSize: 12, color: "#6f766a" }}>
+        {BUILD_TAG} · storage: {store.backend}
+        {store.backend === "supabase" ? " (connecting to database…)" : store.backend === "none" ? " — not saved anywhere; add Supabase keys to sync" : ""}
+      </div>
+    </div>
+  );
 
   const selCell = selected ? resolveCell(selected.day, selected.slotId, selected.dateISO) : null;
   const selSession = selCell ? selCell.session : null;
