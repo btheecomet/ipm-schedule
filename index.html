@@ -63,7 +63,7 @@ const DEFAULT_SESSIONS = [
 ];
 
 const STORAGE_KEY = "ipm7_schedule_v7_fresh";
-const BUILD_TAG = "build 2026-07-03-g10 (resilient load)";
+const BUILD_TAG = "build 2026-07-03-g11 (diagnostics)";
 
 /* ============================================================
    SHARED STORAGE CONFIG
@@ -109,13 +109,24 @@ const supaHeaders = () => ({
 });
 const store = {
   backend: SUPABASE_ENABLED ? "supabase" : (typeof window !== "undefined" && window.storage ? "claude" : "none"),
+  diag: { last: "no request yet" },
   async get(k) {
     if (SUPABASE_ENABLED) {
       try {
-        const r = await fetch(`${SUPABASE_URL}/rest/v1/${SUPABASE_TABLE}?id=eq.${encodeURIComponent(k)}&select=data`, { headers: supaHeaders() });
+        const url = `${SUPABASE_URL}/rest/v1/${SUPABASE_TABLE}?id=eq.${encodeURIComponent(k)}&select=data`;
+        const r = await fetch(url, { headers: supaHeaders() });
+        if (!r.ok) {
+          const body = await r.text();
+          store.diag = { last: `GET ${r.status}: ${body.slice(0, 160)}` };
+          return null;
+        }
         const rows = await r.json();
+        store.diag = { last: `GET ok (${Array.isArray(rows) ? rows.length : "?"} row)` };
         return rows && rows[0] ? rows[0].data : null;
-      } catch (e) { return null; }
+      } catch (e) {
+        store.diag = { last: `GET failed: ${String(e && e.message || e)}` };
+        return null;
+      }
     }
     try { const r = await window.storage.get(k, true); return r ? JSON.parse(r.value) : null; }
     catch (e) { return null; }
@@ -123,13 +134,15 @@ const store = {
   async set(k, v) {
     if (SUPABASE_ENABLED) {
       try {
-        await fetch(`${SUPABASE_URL}/rest/v1/${SUPABASE_TABLE}`, {
+        const r = await fetch(`${SUPABASE_URL}/rest/v1/${SUPABASE_TABLE}`, {
           method: "POST",
           headers: { ...supaHeaders(), Prefer: "resolution=merge-duplicates" },
           body: JSON.stringify({ id: k, data: v, updated_at: new Date().toISOString() }),
         });
+        if (!r.ok) { const body = await r.text(); store.diag = { last: `SAVE ${r.status}: ${body.slice(0, 160)}` }; return false; }
+        store.diag = { last: "saved ✓" };
         return true;
-      } catch (e) { return false; }
+      } catch (e) { store.diag = { last: `SAVE failed: ${String(e && e.message || e)}` }; return false; }
     }
     try { await window.storage.set(k, JSON.stringify(v), true); return true; }
     catch (e) { return false; }
@@ -576,7 +589,7 @@ function App() {
           // don't let a slow/unreachable database hang the UI forever
           saved = await Promise.race([
             store.get(STORAGE_KEY),
-            new Promise((resolve) => setTimeout(() => resolve(undefined), 6000)),
+            new Promise((resolve) => setTimeout(() => resolve(undefined), 4000)),
           ]);
         } catch (e) { saved = null; }
       }
@@ -652,9 +665,10 @@ function App() {
   if (!data) return (
     <div style={{ padding: 40, fontFamily: "system-ui", color: "#2f5a1c" }}>
       <div style={{ fontSize: 18, marginBottom: 8 }}>Loading schedule…</div>
-      <div style={{ fontSize: 12, color: "#6f766a" }}>
-        {BUILD_TAG} · storage: {store.backend}
-        {store.backend === "supabase" ? " (connecting to database…)" : store.backend === "none" ? " — not saved anywhere; add Supabase keys to sync" : ""}
+      <div style={{ fontSize: 12, color: "#6f766a", lineHeight: 1.6 }}>
+        {BUILD_TAG}<br />
+        storage: {store.backend}{store.backend === "supabase" ? ` → ${SUPABASE_URL}` : ""}<br />
+        status: {store.diag ? store.diag.last : "…"}
       </div>
     </div>
   );
@@ -728,7 +742,7 @@ function App() {
       )}
 
       <footer className="ir-foot">
-        <span>Venue: Nilambar 12</span>
+        <span>Venue: Nilambar 12 · <span style={{ opacity: 0.7 }}>{store.backend === "supabase" ? "shared (Supabase)" : store.backend === "claude" ? "shared (Claude)" : "local only"} · {BUILD_TAG}</span></span>
         <span className="ir-foot-tag">बहिर्मुखी विकास गन्तव्यम्</span>
       </footer>
     </div>
